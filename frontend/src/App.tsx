@@ -54,7 +54,7 @@ export default function App() {
       case 'categories': return <Categories onNavigate={navigateTo} />;
       case 'favorites': return <Favorites onNavigate={navigateTo} />;
       case 'downloads': return <Downloads onNavigate={navigateTo} />;
-      case 'settings': return <Settings onNavigate={navigateTo} />;
+      case 'settings': return <Settings />;
       case 'profile': return <Profile user={user} onUpdateUser={setUser} onNavigate={navigateTo} />;
       case 'book-details': return <BookDetails book={selectedBook || MOCK_BOOKS[0]} onNavigate={navigateTo} />;
       case 'author-details': return <AuthorDetails authorName={selectedAuthor || 'Unknown Author'} onNavigate={navigateTo} />;
