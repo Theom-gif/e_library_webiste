@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Icons, MOCK_BOOKS, BookType } from './types';
+import { Icons, MOCK_BOOKS, NEW_ARRIVALS, BookType } from './types';
 
 // Page Components
 import Home from './pages/Home';
@@ -12,8 +12,19 @@ import Profile from './pages/Profile';
 import BookDetails from './pages/BookDetails';
 import AuthorDetails from './pages/AuthorDetails';
 import NotificationsPage from './pages/Notifications';
+import SearchPage from './pages/Search';
 
-type Page = 'home' | 'categories' | 'favorites' | 'downloads' | 'settings' | 'profile' | 'book-details' | 'author-details' | 'notifications';
+type Page =
+  | 'home'
+  | 'categories'
+  | 'favorites'
+  | 'downloads'
+  | 'settings'
+  | 'profile'
+  | 'search'
+  | 'book-details'
+  | 'author-details'
+  | 'notifications';
 
 type AuthenticatedUser = {
   id: string;
@@ -31,6 +42,8 @@ export default function App({ authUser, onLogout }: AppProps) {
   const [currentPage, setCurrentPage] = useState<Page>('home');
   const [selectedBook, setSelectedBook] = useState<BookType | null>(null);
   const [selectedAuthor, setSelectedAuthor] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [isLightMode, setIsLightMode] = useState(false);
   const [user, setUser] = useState({
     name: authUser?.name || 'Library User',
@@ -67,6 +80,57 @@ export default function App({ authUser, onLogout }: AppProps) {
     window.scrollTo(0, 0);
   };
 
+  const searchContainerRef = useRef<HTMLDivElement | null>(null);
+
+  React.useEffect(() => {
+    const onMouseDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (target && searchContainerRef.current && !searchContainerRef.current.contains(target)) {
+        setIsSearchFocused(false);
+      }
+    };
+    document.addEventListener('mousedown', onMouseDown);
+    return () => document.removeEventListener('mousedown', onMouseDown);
+  }, []);
+
+  const libraryBooks = useMemo(() => {
+    const byId = new Map<string, BookType>();
+    [...NEW_ARRIVALS, ...MOCK_BOOKS].forEach((book) => byId.set(book.id, book));
+    return Array.from(byId.values());
+  }, []);
+
+  const filteredBooks = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return [];
+    const tokens = query.split(/\s+/).filter(Boolean);
+
+    const scoreBook = (book: BookType) => {
+      const title = (book.title || '').toLowerCase();
+      const author = (book.author || '').toLowerCase();
+      const category = (book.category || '').toLowerCase();
+      const haystack = `${title} ${author} ${category}`;
+
+      if (!tokens.every((t) => haystack.includes(t))) return 0;
+
+      let score = 0;
+      if (title.startsWith(query)) score += 100;
+      if (title.includes(query)) score += 70;
+      if (author.includes(query)) score += 35;
+      if (category.includes(query)) score += 15;
+      score += Math.round((book.rating || 0) * 2);
+      return score;
+    };
+
+    return libraryBooks
+      .map((book) => ({ book, score: scoreBook(book) }))
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score || a.book.title.localeCompare(b.book.title))
+      .map((item) => item.book);
+  }, [libraryBooks, searchQuery]);
+
+  const showSearchPopover = isSearchFocused && searchQuery.trim().length > 0;
+  const quickResults = filteredBooks.slice(0, 6);
+
   const renderPage = () => {
     switch (currentPage) {
       case 'home': return <Home onNavigate={navigateTo} />;
@@ -75,6 +139,7 @@ export default function App({ authUser, onLogout }: AppProps) {
       case 'downloads': return <Downloads onNavigate={navigateTo} />;
       case 'settings': return <Settings />;
       case 'profile': return <Profile user={user} onUpdateUser={setUser} onNavigate={navigateTo} />;
+      case 'search': return <SearchPage query={searchQuery} results={filteredBooks} onNavigate={navigateTo} />;
       case 'book-details': return <BookDetails book={selectedBook || MOCK_BOOKS[0]} onNavigate={navigateTo} />;
       case 'author-details': return <AuthorDetails authorName={selectedAuthor || 'Unknown Author'} onNavigate={navigateTo} />;
       case 'notifications': return <NotificationsPage onNavigate={navigateTo} />;
@@ -103,13 +168,91 @@ export default function App({ authUser, onLogout }: AppProps) {
             </nav>
           </div>
             <div className="flex flex-1 justify-end items-center gap-6">
-              <div className="relative hidden md:flex items-center bg-surface border border-border rounded-lg px-4 py-2 w-64">
+              <div
+                ref={searchContainerRef}
+                className="relative hidden md:flex items-center bg-surface border border-border rounded-lg px-4 py-2 w-64"
+              >
                 <Icons.Search className="size-4 text-text-muted mr-2" />
                 <input 
                   type="text" 
                   placeholder="Search library..." 
                   className="bg-transparent border-none focus:ring-0 text-sm text-text w-full placeholder:text-text-muted"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onFocus={() => setIsSearchFocused(true)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      setSearchQuery('');
+                      setIsSearchFocused(false);
+                      return;
+                    }
+                    if (e.key === 'Enter') {
+                      const q = searchQuery.trim();
+                      if (!q) return;
+                      navigateTo('search');
+                      setIsSearchFocused(false);
+                    }
+                  }}
+                  autoComplete="off"
                 />
+                {searchQuery.trim().length > 0 && (
+                  <button
+                    type="button"
+                    className="ml-2 text-text-muted hover:text-text transition-colors"
+                    onClick={() => {
+                      setSearchQuery('');
+                      setIsSearchFocused(true);
+                    }}
+                    title="Clear search"
+                  >
+                    <Icons.X className="size-4" />
+                  </button>
+                )}
+
+                {showSearchPopover && (
+                  <div className="absolute top-full left-0 right-0 mt-2 rounded-xl bg-bg border border-border shadow-2xl overflow-hidden z-50">
+                    <div className="max-h-80 overflow-auto">
+                      {quickResults.length === 0 ? (
+                        <div className="px-4 py-3 text-sm text-text-muted">
+                          No results for <span className="text-text font-semibold">"{searchQuery.trim()}"</span>
+                        </div>
+                      ) : (
+                        <div className="py-1">
+                          {quickResults.map((book) => (
+                            <button
+                              key={book.id}
+                              type="button"
+                              className="w-full px-4 py-2 flex items-center gap-3 hover:bg-surface transition-colors text-left"
+                              onClick={() => {
+                                navigateTo('book-details', book);
+                                setIsSearchFocused(false);
+                              }}
+                            >
+                              <img src={book.cover} alt={book.title} className="w-8 h-10 rounded object-cover border border-border" />
+                              <div className="min-w-0 flex-1">
+                                <div className="text-sm font-semibold text-text line-clamp-1">{book.title}</div>
+                                <div className="text-[11px] text-text-muted line-clamp-1">{book.author} • {book.category}</div>
+                              </div>
+                              <Icons.ArrowUpRight className="size-4 text-text-muted" />
+                            </button>
+                          ))}
+                          <div className="border-t border-border mt-1">
+                            <button
+                              type="button"
+                              className="w-full px-4 py-2 text-sm font-semibold text-primary hover:bg-surface transition-colors text-left"
+                              onClick={() => {
+                                navigateTo('search');
+                                setIsSearchFocused(false);
+                              }}
+                            >
+                              View all results
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
               
               <div className="relative">
